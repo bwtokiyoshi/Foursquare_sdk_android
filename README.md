@@ -1,0 +1,2 @@
+# foursquare_sdk_android
+FourSquareのSDKを導入したテストアプリ(Android)
