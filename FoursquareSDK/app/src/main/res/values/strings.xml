@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">FoursquareSDK</string>
+    <string name="toggle_on">ON</string>
+    <string name="toggle_off">OFF</string>
+    <string name="snap_to_place_button_name">Snap-to-Place</string>
+    <string name="geofence_button_name">Geofence</string>
+    <string name="title_activity_snap_to_place_top">SnapToPlaceTopActivity</string>
+</resources>
