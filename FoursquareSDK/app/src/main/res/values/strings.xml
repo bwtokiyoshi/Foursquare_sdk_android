@@ -5,4 +5,5 @@
     <string name="snap_to_place_button_name">Snap-to-Place</string>
     <string name="geofence_button_name">Geofence</string>
     <string name="title_activity_snap_to_place_top">SnapToPlaceTopActivity</string>
+    <string name="current_location_name">現在位置</string>
 </resources>

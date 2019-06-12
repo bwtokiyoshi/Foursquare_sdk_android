@@ -1,7 +1,10 @@
 package com.example.bwp070.foursquaresdk;
 
+import android.annotation.SuppressLint;
+import android.content.ContentValues;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.database.sqlite.SQLiteDatabase;
 import android.support.v4.content.ContextCompat;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
@@ -17,6 +20,8 @@ import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
 import android.widget.CompoundButton;
+import android.widget.ListView;
+import android.widget.TextView;
 import android.widget.Toast;
 import android.widget.ToggleButton;
 
@@ -45,6 +50,10 @@ import static android.icu.text.Normalizer.YES;
 
 public class MainActivity extends AppCompatActivity {
 
+    private SnapToPlaceOpenHelper snapToPlaceHelper;
+    private ListView listView;
+    private TextView textView;
+
     private final CompoundButton.OnCheckedChangeListener toggleChangeListener = new CompoundButton.OnCheckedChangeListener() {
         /**
          * ToggleボタンChecked変更イベントリスナー
@@ -61,6 +70,9 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
+        // ログキャット初期化
+        FSLog.initFileLogCat(getApplicationContext());
+
         //　Pilgrim SDKを設定する
         PilgrimSdk.Builder builder = new PilgrimSdk.Builder(this)
                 // ClientID, ClientSecret
@@ -69,24 +81,19 @@ public class MainActivity extends AppCompatActivity {
                 .logLevel(LogLevel.DEBUG);
         PilgrimSdk.with(builder);
 
-        // NOTE: the below code should be placed AFTER you set up the SDK (ideally in Application#onCreate) using PilgrimSdk.with(builder);
+        // DB作成
+        snapToPlaceHelper = new SnapToPlaceOpenHelper(getApplicationContext());
 
-        PilgrimUserInfo userInfo = new PilgrimUserInfo();
-        // String myCustomUserIdは、ユーザーの一意のIDを格納する以前に設定された変数です。
-        String myCustomUserId = "bw61";
-        userInfo.setUserId(myCustomUserId);
-        // 以下を使用して他のカスタムフィールドを設定することもできます。
-        userInfo.put("myCustomField", "My custom value");
-//        // v2.1.2からは、セッションをまたいでユーザー情報を永続化することができます。
-//        PilgrimSdk.get().setUserInfo(userInfo, persisted: true);
-//        // 持続フィールドを設定解除するには：
-//        PilgrimSdk.get().setUserInfo(null, persisted: true);
 
 
         // パーミッションの許可を取得する
         ActivityCompat.requestPermissions(this,
                 new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, 1000); //Manifest.permission.ACCESS_COARSE_LOCATION
 
+        //　現在地を取得
+        getCurrentLocation();
+
+        // トグルボタンにSDK検知ON/OFFを設定
         setSdkDetectToggleButton(SDKManager.isServiceStarted(getApplicationContext()));
     }
 
@@ -100,10 +107,10 @@ public class MainActivity extends AppCompatActivity {
         if(isChecked) {
             // (起動状態: SDK起動中)の場合
             if (SDKPermissionSharedPreferences.getSdkStartFlag(getApplicationContext())) {
-                Log.d("PilgrimSdk", "setSdkDetect: SDKはすでに起動中です");
+                FSLog.d("setSdkDetect: SDKはすでに起動中です");
                 return;
             }
-            Log.d("PilgrimSdk", "setSdkDetect: Pilgrim SDKを起動");
+            FSLog.d("setSdkDetect: Pilgrim SDKを起動");
             PilgrimSdk.start(getApplicationContext());
             // (起動状態: SDK検知起動)フラグ保存
             SDKPermissionSharedPreferences.setSdkStartFlag(getApplicationContext());
@@ -111,10 +118,10 @@ public class MainActivity extends AppCompatActivity {
         } else {
             // (起動状態: SDK停止中)の場合
             if (!SDKPermissionSharedPreferences.getSdkStartFlag(getApplicationContext())) {
-                Log.d("PilgrimSdk", "setSdkDetect: SDKはすでに停止中です");
+                FSLog.d("setSdkDetect: SDKはすでに停止中です");
                 return;
             }
-            Log.d("PilgrimSdk", "setSdkDetect: Pilgrim SDKを停止");
+            FSLog.d("setSdkDetect: Pilgrim SDKを停止");
             PilgrimSdk.stop(getApplicationContext());
             // (起動状態: SDK検知停止)フラグ保存
             SDKPermissionSharedPreferences.setSdkStopFlag(getApplicationContext());
@@ -141,63 +148,66 @@ public class MainActivity extends AppCompatActivity {
         public void handleVisit(Context context, PilgrimSdkVisitNotification notification) {
             // Process the visit however you'd like:
             Visit visit = notification.getVisit();
-            Log.d("PilgrimSdk", "handleVisit: " + visit.toString());
+            FSLog.d("handleVisit: " + visit.toString());
+
+            saveSnapToPlaceData("タイトル", "100");
+
 
             // デバイスがarriveした時のタイムスタンプをms単位で取得
             Long arrive = visit.getArrival();
-            Log.d("PilgrimSdk", "handleVisit_arrive: " + arrive.toString());
+            FSLog.d("handleVisit_arrive: " + arrive.toString());
 
             // デバイスがarriveした時のタイムスタンプをms単位で取得
             Confidence confidence = visit.getConfidence();
-            Log.d("PilgrimSdk", "handleVisit_confidence: " + confidence.toString());
+            FSLog.d("handleVisit_confidence: " + confidence.toString());
 
             // デバイスがdepartした時のタイムスタンプをms単位で取得
             Long departure = visit.getDeparture();
-            Log.d("PilgrimSdk", "handleVisit_departure: " + departure.toString());
+            FSLog.d("handleVisit_departure: " + departure.toString());
 
             //　visitが作成された場所を取得
             FoursquareLocation location = visit.getLocation();
-            Log.d("PilgrimSdk", "handleVisit_location: " + location.toString());
+            FSLog.d("handleVisit_location: " + location.toString());
 
             // Pilgrimコンソールの設定を有効にして、通知内でユーザーの周囲の場所を取得した場合は、ここでそれらを取得できる。
             List<Venue> otherPossibleVenues = visit.getOtherPossibleVenues();
-            Log.d("PilgrimSdk", "handleVisit_otherPossibleVenues: " + otherPossibleVenues.toString());
+            FSLog.d("handleVisit_otherPossibleVenues: " + otherPossibleVenues.toString());
 
             // 現在のvisitIDを取得
             String pilgrimVisitID = visit.getPilgrimVisitId();
-            Log.d("PilgrimSdk", "handleVisit_pilgrimVisitID: " + pilgrimVisitID.toString());
+            FSLog.d("handleVisit_pilgrimVisitID: " + pilgrimVisitID.toString());
 
             // ユーザーセグメントを取得するためにPilgrimコンソールの設定を有効にしている場合は、ここでそれらを取得できる。
             List<Segment> segments = visit.getSegments();
-            Log.d("PilgrimSdk", "handleVisit_segments: " + segments.toString());
+            FSLog.d("handleVisit_segments: " + segments.toString());
 
             // visitのタイプを取得
             LocationType type = visit.getType();
-            Log.d("PilgrimSdk", "handleVisit_type: " + type.toString());
+            FSLog.d("handleVisit_type: " + type.toString());
 
             //
             UserStateList userStates = visit.getUserStates();
-            Log.d("PilgrimSdk", "handleVisit_userStatus: " + userStates.toString());
+            FSLog.d("handleVisit_userStatus: " + userStates.toString());
 
             //　デバイスが存在する場所の開催地オブジェクト
             Venue venue = visit.getVenue();
-            Log.d("PilgrimSdk", "handleVisit_venue: " + venue.toString());
+            FSLog.d("handleVisit_venue: " + venue.toString());
 
             //　デバイスがvisitになった時間をms単位で取得
             Long visitLength = visit.getVisitLength();
-            Log.d("PilgrimSdk", "handleVisit_visitLength: " + visitLength.toString());
+            FSLog.d("handleVisit_visitLength: " + visitLength.toString());
 
             //　デバイスがこの場所を離れたかどうかを取得
             Boolean departed = visit.hasDeparted();
-            Log.d("PilgrimSdk", "handleVisit_departed: " + departed.toString());
+            FSLog.d("handleVisit_departed: " + departed.toString());
 
             // hashCode
             int hashCode = visit.hashCode();
-            Log.d("PilgrimSdk", "handleVisit_hashCode: " + hashCode);
+            FSLog.d("handleVisit_hashCode: " + hashCode);
 
             // 訪問のデータが、イベントがすでに発生した後にSDKがあなたとvisitの完全な情報を通信している「埋め戻し」から来ているかどうかを知ることができる
             Boolean backfill = visit.isBackfill();
-            Log.d("PilgrimSdk", "handleVisit_backfill: " + backfill.toString());
+            FSLog.d("handleVisit_backfill: " + backfill.toString());
         }
 
 
@@ -210,7 +220,7 @@ public class MainActivity extends AppCompatActivity {
             super.handleBackfillVisit(context, notification);
             Visit visit = notification.getVisit();
             Venue venue = visit.getVenue();
-            Log.d("PilgrimSdk", "handleBackfillVisit: " + visit.toString());
+            FSLog.d("handleBackfillVisit: " + visit.toString());
             //Toast.makeText(context , "handleBackfillVisit", Toast.LENGTH_LONG).show();
         }
 
@@ -221,8 +231,9 @@ public class MainActivity extends AppCompatActivity {
             // Process the geofence events however you'd like:
             List<GeofenceEvent> geofenceEvents = notification.getGeofenceEvents();
             for (GeofenceEvent geofenceEvent : geofenceEvents) {
-                Log.d("PilgrimSdk", "handleGeofenceEventNotification: " + geofenceEvent.toString());
+                FSLog.d("handleGeofenceEventNotification: " + geofenceEvent.toString());
             }
+            FSLog.d("----");
             //Toast.makeText(context , "handleGeofenceEventNotification", Toast.LENGTH_LONG).show();
         }
 
@@ -254,5 +265,50 @@ public class MainActivity extends AppCompatActivity {
     public void onClickGeofenceButton(final View view) {
         Intent intent = new Intent(MainActivity.this, GeofenceTopActivity.class);
         startActivity(intent);
+    }
+
+    /**
+     * データを保存する.
+     * @param
+     */
+    public void saveSnapToPlaceData(String title, String score) {
+        SQLiteDatabase db = snapToPlaceHelper.getWritableDatabase();
+        ContentValues values = new ContentValues();
+
+        values.put("title", title);
+        values.put("score", score);
+
+        db.insert("foursquaredb", null, values);
+    }
+
+    //現在地取得
+    public void getCurrentLocation () {
+        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    @SuppressLint("MissingPermission") Result<CurrentLocation, Exception> currentLocationResult = PilgrimSdk.get().getCurrentLocation();
+                    if (currentLocationResult.isOk()) {
+                        final CurrentLocation currentLocation = currentLocationResult.getResult();
+
+                        FSLog.d("getCurrentLocation: Currently at " + currentLocation.getCurrentPlace().toString() + " and inside " + currentLocation.getMatchedGeofences().size() + " geofence(s)");
+
+                        // 変数textViewに表示するテキストビューのidを格納
+                        runOnUiThread(new Runnable() {
+                            @Override
+                            public void run() {
+                                textView = findViewById(R.id.current_location_id);
+                                textView.setText(currentLocation.getCurrentPlace().toString());
+                            }
+                        });
+
+                    } else {
+                        FSLog.e("getCurrentLocation: " + currentLocationResult.getErr().getMessage());
+                        //Log.e("PilgrimSdk", "getCurrentLocation: " + currentLocationResult.getErr().getMessage(), currentLocationResult.getErr());
+
+                    }
+                }
+            }).start();
+        }
     }
 }
